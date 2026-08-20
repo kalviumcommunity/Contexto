@@ -116,4 +116,4 @@ Workspace setup successful!
 
 ## Next Development Stages
 
-Future stages will implement document processing, chunking, embeddings, vector search, RAG answer generation, source attribution, and the journalist-facing interface.
+Future stages will implement document processing, chunking, embeddings, vector search, RAG answer generation, source attribution, and the journalist-facing interface...

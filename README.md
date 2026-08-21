@@ -117,3 +117,15 @@ Workspace setup successful!
 ## Next Development Stages
 
 Future stages will implement document processing, chunking, embeddings, vector search, RAG answer generation, source attribution, and the journalist-facing interface...
+
+
+Workflow Established
+Created separate feature branches for each team member to avoid direct changes to main.
+Used GitHub Issues to track tasks, assign responsibilities, and document requirements.
+Followed a Pull Request-based workflow for merging changes into main.
+Established code review so that changes are reviewed and approved by at least one teammate before merging.
+Adopted Conventional Commits such as feat:, fix:, docs:, refactor:, and test: for clear and consistent commit history.
+Linked Pull Requests with their corresponding Issues using Closes #<issue-number>.
+Kept main as the stable branch containing reviewed and approved changes.
+Team Workflow
+Issue → Feature Branch → Changes → Commit → Push → Pull Request → Code Review → Approval → Merge

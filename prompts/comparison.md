@@ -42,6 +42,16 @@ Both calls use the RAG guardrails in `prompt_experiment.py`:
 
 `top_p` is an alternative nucleus-sampling control. Tune it instead of `temperature`, rather than changing both at once. For a grounded assistant, start with `temperature=0.0` to `0.2`, keep a task-sized `max_tokens` limit, and use `stop` only when the sequence matches the expected output format.
 
+## Task 5: Structured output
+
+The final request asks for JSON only in this fixed shape:
+
+```json
+{"answer": "string", "source": "string"}
+```
+
+It also sends `response_format={"type": "json_object"}` and `temperature=0.0`. The response is parsed with `json.loads()` and validated before the application uses either field. If parsing or validation fails, the script retries once with an explicit JSON-only reminder; a second failure raises a clear error instead of guessing where the answer or citation ends.
+
 ## Run the live comparison
 
 ```bash

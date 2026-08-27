@@ -1,141 +1,93 @@
-"""Compare prompt designs for Contexto's staff-question assistant."""
-
 import os
-from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
+from openai import OpenAI, AuthenticationError, RateLimitError
 
 
-SYSTEM_PROMPT = (
-    "You are Contexto, a support assistant for an internal media research team. "
-    "Answer staff questions using only information provided in the conversation "
-    "or retrieved context. Do not invent policies, dates, names, or sources. "
-    "If the information is missing or uncertain, say: 'I don't know based on the "
-    "available information.' Keep answers under 60 words, use a professional and "
-    "direct tone, and include the relevant source when one is provided."
-)
+# Load .env from the project root
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE = PROJECT_ROOT / ".env"
 
-TEMPERATURE_PROMPT = (
-    "Answer this staff question in one sentence: What is the refund window? "
-    "Use only the supplied information and do not guess."
-)
-
-RAG_REQUEST_PARAMS = {
-    "max_tokens": 300,
-    "stop": ["\n\nUser:"],
-}
-
-VARIATIONS = {
-    "vague": "Explain our refund policy.",
-    "constrained": (
-        "Answer this staff question in one sentence: What is the refund window? "
-        "Use only the supplied information and do not guess."
-    ),
-}
+load_dotenv(ENV_FILE)
 
 
-@dataclass(frozen=True)
-class PromptResult:
-    """The input and model output for one prompt variation."""
-
-    variation: str
-    user_prompt: str
-    output: str
+# Read configuration
+API_KEY = os.getenv("OPENAI_API_KEY")
+BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4o-mini")
 
 
-@dataclass(frozen=True)
-class ParameterResult:
-    """The model output and sampling settings for one parameter run."""
+print("===================================")
+print("Contexto - Prompt Experiment")
+print("===================================")
 
-    temperature: float
-    output: str
-
-
-def build_messages(user_prompt: str) -> list[dict[str, str]]:
-    """Keep assistant behavior in the system role and the question in user role."""
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+print("ENV FILE:", ENV_FILE)
+print("API KEY FOUND:", bool(API_KEY))
+print("BASE URL:", BASE_URL)
+print("CHAT MODEL:", CHAT_MODEL)
 
 
-def compare_prompts(client: "OpenAI", model: str) -> list[PromptResult]:
-    """Run both prompt variations against the same model and question."""
-    results = []
-    for variation, user_prompt in VARIATIONS.items():
-        response = client.chat.completions.create(
-            model=model,
-            messages=build_messages(user_prompt),
-        )
-        results.append(
-            PromptResult(
-                variation=variation,
-                user_prompt=user_prompt,
-                output=response.choices[0].message.content or "",
-            )
-        )
-    return results
-
-
-def compare_temperatures(client: "OpenAI", model: str) -> list[ParameterResult]:
-    """Run one grounded question at low and high temperature values."""
-    results = []
-    for temperature in (0.0, 1.0):
-        response = client.chat.completions.create(
-            model=model,
-            messages=build_messages(TEMPERATURE_PROMPT),
-            temperature=temperature,
-            **RAG_REQUEST_PARAMS,
-        )
-        results.append(
-            ParameterResult(
-                temperature=temperature,
-                output=response.choices[0].message.content or "",
-            )
-        )
-    return results
-
-
-def main() -> None:
-    """Run the comparison when API configuration is available."""
-    load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("CHAT_MODEL")
-    if not api_key or api_key in {"your_key", "sk-proj-..."} or "..." in api_key:
-        raise SystemExit(
-            "Set OPENAI_API_KEY to a valid API key in .env. "
-            "The current value is a placeholder."
-        )
-    if not model:
-        raise SystemExit(
-            "Set CHAT_MODEL in .env before running this experiment."
-        )
-
-    try:
-        from openai import OpenAI
-    except ModuleNotFoundError as error:
-        raise SystemExit(
-            "Install the project dependencies before running the live experiment."
-        ) from error
-
-    client = OpenAI(
-        api_key=api_key,
-        base_url=os.getenv("OPENAI_BASE_URL") or None,
+# Check API key
+if not API_KEY:
+    raise RuntimeError(
+        "OPENAI_API_KEY was not found in .env"
     )
-    try:
-        print("Prompt comparison")
-        for result in compare_prompts(client, model):
-            print(f"[{result.variation}] {result.output}")
-
-        print("\nTemperature comparison (same prompt and model)")
-        for result in compare_temperatures(client, model):
-            print(f"[temperature={result.temperature}] {result.output}")
-    except AuthenticationError as error:
-        raise SystemExit(
-            "Authentication failed. Check that OPENAI_API_KEY is valid and "
-            "matches OPENAI_BASE_URL in .env."
-        ) from error
 
 
-if __name__ == "__main__":
-    main()
+# Create client
+client = OpenAI(
+    api_key=API_KEY,
+    base_url=BASE_URL
+)
+
+
+# Test prompt
+messages = [
+    {
+        "role": "system",
+        "content": "You are a concise assistant."
+    },
+    {
+        "role": "user",
+        "content": "Say hello in one sentence."
+    }
+]
+
+
+print("\nSending request...\n")
+
+
+try:
+    response = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=messages
+    )
+
+    reply = response.choices[0].message.content
+
+    print("Assistant:", reply)
+
+    if response.usage:
+        print("\nUsage:")
+        print("Input tokens:", response.usage.prompt_tokens)
+        print("Output tokens:", response.usage.completion_tokens)
+        print("Total tokens:", response.usage.total_tokens)
+
+
+except AuthenticationError as e:
+    print("\nAuthentication failed.")
+    print("Check that your OPENAI_API_KEY is valid.")
+    print("Also check that the key belongs to the API project you are using.")
+    print("\nError:", e)
+
+
+except RateLimitError as e:
+    print("\nRate limit or quota error.")
+    print("Check your API project billing/usage limits.")
+    print("\nError:", e)
+
+
+except Exception as e:
+    print("\nUnexpected error:")
+    print(type(e).__name__, e)

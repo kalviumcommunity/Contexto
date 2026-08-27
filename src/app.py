@@ -1,11 +1,17 @@
 import os
 import logging
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI, AuthenticationError, RateLimitError
 
-# Load environment variables from .env
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+from prompts.answer import ANSWER, render
+
+# Load environment variables from the project root
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 # --------------------------------------------------
@@ -80,12 +86,12 @@ client = OpenAI(**client_args)
 
 messages = [
     {
-        "role": "system",
-        "content": "You are a concise assistant."
-    },
-    {
         "role": "user",
-        "content": "Say hello in one sentence."
+        "content": render(
+            ANSWER,
+            context="No retrieved context was provided.",
+            question="Say hello in one sentence.",
+        ),
     }
 ]
 

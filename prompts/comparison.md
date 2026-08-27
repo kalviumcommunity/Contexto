@@ -28,10 +28,24 @@ This is readable, but it is broad and does not answer the specific question in a
 
 The second prompt is better because it names the exact task, requires one sentence, and reinforces the no-guessing fallback. With retrieved policy text added later, the same prompt will produce a concise grounded answer.
 
+## Task 4: Parameter comparison
+
+The script also sends the exact same `TEMPERATURE_PROMPT` twice with the same model. The only changed request parameter is `temperature`:
+
+- `temperature=0.0` favors focused, repeatable answers.
+- `temperature=1.0` permits more variation and can increase unsupported embellishment in a grounded task.
+
+Both calls use the RAG guardrails in `prompt_experiment.py`:
+
+- `max_tokens=300` caps output length and output-token cost.
+- `stop=["\\n\\nUser:"]` prevents generation from continuing into a later user turn.
+
+`top_p` is an alternative nucleus-sampling control. Tune it instead of `temperature`, rather than changing both at once. For a grounded assistant, start with `temperature=0.0` to `0.2`, keep a task-sized `max_tokens` limit, and use `stop` only when the sequence matches the expected output format.
+
 ## Run the live comparison
 
 ```bash
 python prompts/prompt_experiment.py
 ```
 
-Configure `OPENAI_API_KEY` and `CHAT_MODEL` in `.env` first. The script never prints the key.
+Configure `OPENAI_API_KEY` and `CHAT_MODEL` in `.env` first. The script never prints the key. It runs the original prompt comparison and then the same-prompt temperature comparison.

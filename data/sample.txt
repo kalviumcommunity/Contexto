@@ -1,1 +1,17 @@
-Contexto helps journalists retrieve accurate historical information from archived documents.
+CONTEXTO MEDIA ARCHIVE
+
+
+Contexto helps journalists retrieve accurate historical information.   This   document contains research notes.
+
+Page 3 of 12
+
+The journalist's archive contains historical research and interview notes.
+
+
+CONTEXTO MEDIA ARCHIVE
+
+The organisationâ€™s records provide useful context for current reporting.
+
+Page 4 of 12
+
+This document demonstrates text cleaning for the RAG pipeline.

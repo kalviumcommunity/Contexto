@@ -89,6 +89,20 @@ EMBED_MODEL
 python src/app.py
 ```
 
+## Prompt templates
+
+The reusable grounded answer prompt is defined in `prompts/answer.py`. Callers
+render it with runtime values instead of embedding prompt text in business logic:
+
+```python
+from prompts.answer import ANSWER, render
+
+message = render(ANSWER, context=retrieved_chunks, question=user_question)
+```
+
+Update the grounding or citation rules in `prompts/answer.py` to change them for
+the application and prompt experiment together.
+
 ## Verification
 
 The workspace was successfully tested with the virtual environment activated.

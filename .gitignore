@@ -1,6 +1,7 @@
 # Virtual environments
 .venv/
 venv/
+
 # Local media/document data
 data/*
 !data/.gitkeep
@@ -17,18 +18,18 @@ data/*
 .env.*
 !.env.example
 
-# Local media/document data
-
-
 # Generated outputs
 outputs/*
 !outputs/.gitkeep
 
+# Assignment intake evidence
+!outputs/intake_results.md
+
 # Assignment cleaning evidence
 !outputs/cleaning_results.md
 
-# Assignment intake evidence
-!outputs/intake_results.md
+# Assignment chunking evidence
+!outputs/chunking_results.md
 
 # Python cache
 __pycache__/

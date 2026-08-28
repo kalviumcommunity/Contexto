@@ -118,6 +118,22 @@ Workspace setup successful!
 
 Future stages will implement document processing, chunking, embeddings, vector search, RAG answer generation, source attribution, and the journalist-facing interface...
 
+## Document Loading
+
+The loader accepts PDF, TXT, Markdown, and HTML files. It returns a common document shape with the source filename preserved:
+
+```python
+{"source": "sample_article.txt", "text": "..."}
+```
+
+Run it against the included sample corpus:
+
+```bash
+python src/document_loader.py
+```
+
+Each successful file prints its extracted character count and a short sample. Unsupported, missing, corrupt, or unreadable files are reported as `SKIP` entries while the remaining corpus continues loading. PDF extraction uses `pypdf`; HTML tags are removed with Beautiful Soup.
+
 
 Workflow Established
 Created separate feature branches for each team member to avoid direct changes to main.

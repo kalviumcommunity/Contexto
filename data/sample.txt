@@ -1,0 +1,1 @@
+Contexto helps journalists retrieve accurate historical information from archived documents.

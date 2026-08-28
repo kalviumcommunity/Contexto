@@ -1,7 +1,16 @@
 # Virtual environments
 .venv/
 venv/
-env/
+# Local media/document data
+data/*
+!data/.gitkeep
+
+# Sample corpus for document loader assignment
+!data/sample.txt
+!data/sample.md
+!data/sample.html
+!data/sample.pdf
+!data/sample.xyz
 
 # Environment variables and secrets
 .env
@@ -9,12 +18,14 @@ env/
 !.env.example
 
 # Local media/document data
-data/*
-!data/.gitkeep
+
 
 # Generated outputs
 outputs/*
 !outputs/.gitkeep
+
+# Assignment intake evidence
+!outputs/intake_results.md
 
 # Python cache
 __pycache__/

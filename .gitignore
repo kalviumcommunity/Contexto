@@ -18,6 +18,13 @@ data/*
 .env.*
 !.env.example
 
+Document-Loading
+# Local media/document data
+data/*
+!data/.gitkeep
+!data/sample_*
+
+ main
 # Generated outputs
 outputs/*
 !outputs/.gitkeep

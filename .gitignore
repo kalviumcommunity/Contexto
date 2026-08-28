@@ -24,6 +24,9 @@ data/*
 outputs/*
 !outputs/.gitkeep
 
+# Assignment cleaning evidence
+!outputs/cleaning_results.md
+
 # Assignment intake evidence
 !outputs/intake_results.md
 

@@ -132,6 +132,31 @@ Workspace setup successful!
 
 Future stages will implement document processing, chunking, embeddings, vector search, RAG answer generation, source attribution, and the journalist-facing interface...
 
+## Chunk Metadata and Source Tracking
+
+Every chunk returned by `src/chunker.py` keeps its text beside a consistent
+metadata record:
+
+```python
+{
+	"text": "Contexto helps journalists...",
+	"metadata": {
+		"source": "sample.txt",
+		"chunk_index": 0,
+		"char_start": 0,
+		"char_end": 42,
+		"section": None,
+		"page": None,
+	},
+}
+```
+
+The source and character offsets let a retrieved chunk be traced back to its
+exact document location. The optional `section` and `page` fields are present
+on every record and can be populated by format-specific loaders when that
+information is available. Running `python src/chunker.py` prints sample
+records and a trace line for a retrieved chunk.
+
 ## Document Loading
 
 The loader accepts PDF, TXT, Markdown, and HTML files. It returns a common document shape with the source filename preserved:

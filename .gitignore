@@ -37,6 +37,7 @@ outputs/*
 
 # Assignment chunking evidence
 !outputs/chunking_results.md
+!outputs/chunk_metadata_results.md
 
 # Python cache
 __pycache__/

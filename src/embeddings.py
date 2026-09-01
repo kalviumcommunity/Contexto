@@ -348,6 +348,78 @@ def render_similarity_report(query: str, query_vector: Sequence[float], ranked: 
     return "\n".join(lines)
 
 
+def run_quality_checks(test_cases: list[dict], records: list[dict]) -> list[dict]:
+    """Run known query-to-source checks and report whether the expected source ranks highest."""
+    report = []
+    for case in test_cases:
+        query_vector = case.get("query_vector")
+        if query_vector is None:
+            raise ValueError(f"Each test case must include a 'query_vector': {case}")
+        ranked = rank_chunks_for_query(query_vector, records)
+        top = ranked[0]
+        passed = top["metadata"].get("source") == case["expected_source"]
+        report.append(
+            {
+                "query": case["query"],
+                "expected_source": case["expected_source"],
+                "top_source": top["metadata"].get("source"),
+                "top_score": round(float(top["score"]), 6),
+                "passed": passed,
+                "note": "expected source ranked on top" if passed else "unexpected top source; investigate model or chunk mismatch",
+            }
+        )
+    return report
+
+
+def render_sanity_report(report: list[dict]) -> str:
+    """Render a markdown sanity report summarising query quality checks."""
+    passed = sum(1 for row in report if row["passed"])
+    failed = len(report) - passed
+    lines = [
+        "# Sanity Report",
+        "",
+        f"- Tests: {len(report)}",
+        f"- Passed: {passed}",
+        f"- Failed: {failed}",
+        "",
+        "## Results",
+        "",
+    ]
+
+    for index, row in enumerate(report, start=1):
+        lines.extend(
+            [
+                f"### Test {index}",
+                "",
+                "```json",
+                json.dumps(
+                    {
+                        "query": row["query"],
+                        "expected_source": row["expected_source"],
+                        "top_source": row["top_source"],
+                        "top_score": row["top_score"],
+                        "passed": row["passed"],
+                        "note": row["note"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                "```",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## Summary",
+            "",
+            "summary: related chunks should rank above unrelated ones for a trustworthy retrieval pipeline.",
+            "summary: if a query fails, inspect model consistency, vector alignment, text cleaning, and metadata mapping.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate embeddings for Contexto chunks.")
     parser.add_argument("--demo", action="store_true", help="Use the offline demo corpus without requiring API credentials.")
@@ -410,6 +482,23 @@ def main() -> None:
     batch_summary_path = PROJECT_ROOT / "outputs" / "batch_embedding_results.md"
     batch_summary_path.write_text(render_batch_summary(summary, model=model_name), encoding="utf-8")
     print(f"Saved batch summary: {batch_summary_path}")
+
+    sanity_cases = [
+        {
+            "query": "How can a learner reset their password?",
+            "expected_source": "account-guide.md",
+            "query_vector": demo_vectors([{"text": "How can a learner reset their password?"}], dim=len(records[0]["embedding"]))[0],
+        },
+        {
+            "query": "When does the cafeteria menu change?",
+            "expected_source": "campus-guide.md",
+            "query_vector": demo_vectors([{"text": "When does the cafeteria menu change?"}], dim=len(records[0]["embedding"]))[0],
+        },
+    ]
+    sanity_report = run_quality_checks(sanity_cases, records)
+    sanity_path = PROJECT_ROOT / "outputs" / "sanity_report.md"
+    sanity_path.write_text(render_sanity_report(sanity_report), encoding="utf-8")
+    print(f"Saved sanity report: {sanity_path}")
 
 
 if __name__ == "__main__":

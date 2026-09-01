@@ -2,17 +2,24 @@ from document_loader import load_documents
 from text_cleaner import clean_text
 
 
+TOKENIZER_NAME = "cl100k_base"
+
+
 def tag_chunks(
     source: str,
     chunks: list[tuple[str, int]],
     *,
     section: str | None = None,
     page: int | None = None,
+    token_ranges: list[tuple[int, int]] | None = None,
 ) -> list[dict]:
     """Attach a consistent citation record to every chunk."""
 
     tagged = []
     for index, (text, char_start) in enumerate(chunks):
+        token_start, token_end = (None, None)
+        if token_ranges is not None:
+            token_start, token_end = token_ranges[index]
         tagged.append(
             {
                 "text": text,
@@ -23,6 +30,13 @@ def tag_chunks(
                     "char_end": char_start + len(text),
                     "section": section,
                     "page": page,
+                    "token_start": token_start,
+                    "token_end": token_end,
+                    "token_count": (
+                        token_end - token_start
+                        if token_start is not None and token_end is not None
+                        else None
+                    ),
                 },
             }
         )
@@ -63,6 +77,44 @@ def fixed_chunks(
         start += step
 
     return tag_chunks(source, chunks)
+
+
+def token_chunks(
+    text: str,
+    source: str,
+    size: int = 400,
+    overlap: int = 60,
+) -> list[dict]:
+    """Split text into token-sized chunks with controlled overlap."""
+
+    if size <= 0:
+        raise ValueError("chunk size must be positive")
+    if overlap < 0 or overlap >= size:
+        raise ValueError("overlap must be non-negative and less than chunk size")
+
+    import tiktoken
+
+    encoder = tiktoken.get_encoding(TOKENIZER_NAME)
+    tokens = encoder.encode(text)
+    chunks = []
+    token_ranges = []
+    start = 0
+    step = size - overlap
+
+    while start < len(tokens):
+        end = min(start + size, len(tokens))
+        overlap_start = max(0, start - overlap)
+        chunk_tokens = tokens[overlap_start:end]
+        chunk = encoder.decode(chunk_tokens)
+        decoded_prefix = encoder.decode(tokens[:start])
+        char_start = text.find(chunk, len(decoded_prefix))
+        if char_start < 0:
+            char_start = len(decoded_prefix)
+        chunks.append((chunk, char_start))
+        token_ranges.append((start, end))
+        start += step
+
+    return tag_chunks(source, chunks, token_ranges=token_ranges)
 
 
 def paragraph_chunks(text: str, source: str) -> list[dict]:

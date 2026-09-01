@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -158,6 +159,113 @@ def rank_chunks_for_query(query_vector: Sequence[float], records: list[dict]) ->
     return sorted(ranked, key=lambda item: item["score"], reverse=True)
 
 
+def batches(items: Sequence[Any], size: int):
+    """Yield consecutive batches of a fixed maximum size."""
+    if size <= 0:
+        raise ValueError("Batch size must be greater than zero.")
+    for start in range(0, len(items), size):
+        yield list(items[start:start + size])
+
+
+def estimate_tokens(texts: Sequence[str]) -> int:
+    """Estimate token counts using a simple word-based heuristic for run summaries."""
+    total = 0
+    for text in texts:
+        words = (text or "").split()
+        if not words:
+            continue
+        total += len(words)
+    return total
+
+
+def embed_with_retry(client: Any, model: str, texts: Sequence[str], *, max_attempts: int = 5, base_wait_seconds: float = 1.0):
+    """Retry transient embedding failures with exponential backoff."""
+    for attempt in range(max_attempts):
+        try:
+            return client.embeddings.create(model=model, input=list(texts))
+        except Exception as error:  # pragma: no cover - exercised via integration path at runtime
+            if attempt == max_attempts - 1:
+                raise
+            wait_seconds = base_wait_seconds * (2 ** attempt)
+            print(f"retrying after error: {error} | wait={wait_seconds}s")
+            time.sleep(wait_seconds)
+    raise RuntimeError("Embedding failed after retries.")
+
+
+def run_batch_embedding(
+    chunks: list[dict],
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    batch_size: int = 64,
+    existing_ids: set[str] | None = None,
+    price_per_1k_tokens: float = 0.00002,
+    max_attempts: int = 5,
+    base_wait_seconds: float = 1.0,
+) -> tuple[list[dict], dict]:
+    """Embed only pending chunks in batches and return records plus a cost/throughput summary."""
+    if client is None:
+        client = create_client()
+    model_name = model or resolve_model()
+    existing = set(existing_ids or [])
+    pending = []
+    for chunk in chunks:
+        chunk_id = chunk.get("id") or chunk.get("metadata", {}).get("id") or chunk.get("metadata", {}).get("chunk_index")
+        if chunk_id in existing:
+            continue
+        pending.append(chunk)
+
+    summary = {
+        "total_chunks": len(chunks),
+        "skipped_existing": len(chunks) - len(pending),
+        "embedded": 0,
+        "failed": 0,
+        "input_tokens": 0,
+        "attempted_batches": 0,
+        "estimated_cost_usd": 0.0,
+    }
+
+    records: list[dict] = []
+    for batch in batches(pending, batch_size):
+        summary["attempted_batches"] += 1
+        texts = [chunk["text"] for chunk in batch]
+        summary["input_tokens"] += estimate_tokens(texts)
+        try:
+            response = embed_with_retry(client, model_name, texts, max_attempts=max_attempts, base_wait_seconds=base_wait_seconds)
+            batch_records = build_records(batch, [item.embedding for item in response.data])
+            records.extend(batch_records)
+            summary["embedded"] += len(batch_records)
+        except Exception as error:
+            summary["failed"] += len(batch)
+            print(f"Batch failed after retries: {error}")
+
+    summary["estimated_cost_usd"] = summary["input_tokens"] / 1000 * price_per_1k_tokens
+    return records, summary
+
+
+def render_batch_summary(summary: dict, *, model: str) -> str:
+    """Render a markdown summary for a batch embedding run."""
+    lines = [
+        "# Batch Embedding Summary",
+        "",
+        f"- Model: {model}",
+        f"- Total chunks: {summary['total_chunks']}",
+        f"- Skipped existing: {summary['skipped_existing']}",
+        f"- Embedded: {summary['embedded']}",
+        f"- Failed: {summary['failed']}",
+        f"- Input tokens: {summary['input_tokens']}",
+        f"- Estimated cost (USD): ${summary['estimated_cost_usd']:.8f}",
+        f"- Attempted batches: {summary['attempted_batches']}",
+        "",
+        "## Notes",
+        "",
+        "- Batching reduces per-request overhead.",
+        "- Exponential backoff helps absorb rate-limit and transient errors.",
+        "- Re-runs skip chunks already seen so the pipeline avoids duplicate costs.",
+    ]
+    return "\n".join(lines)
+
+
 def render_output(records: list[dict], model: str) -> str:
     """Generate a markdown report showing stored text, metadata, and vector previews."""
     vector_length = len(records[0]["embedding"]) if records else 0
@@ -245,6 +353,7 @@ def main() -> None:
     parser.add_argument("--demo", action="store_true", help="Use the offline demo corpus without requiring API credentials.")
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "outputs" / "embedding_results.md", help="Location for the saved sample output.")
     parser.add_argument("--model", default=None, help="Override the embedding model name.")
+    parser.add_argument("--batch-size", type=int, default=2, help="Batch size for the demo embedding pipeline.")
     args = parser.parse_args()
 
     model_name = args.model or resolve_model()
@@ -252,15 +361,36 @@ def main() -> None:
 
     if args.demo or not os.getenv("OPENAI_API_KEY"):
         print("Using demo embedding vectors because OPENAI_API_KEY is not configured.")
-        records = build_records(chunks, demo_vectors(chunks))
+
+        class DemoEmbeddingClient:
+            @property
+            def embeddings(self):
+                return self
+
+            def create(self, model, input):
+                class FakeResponse:
+                    def __init__(self, vectors):
+                        self.data = [type("Item", (), {"embedding": vector})() for vector in vectors]
+                return FakeResponse(demo_vectors([{"text": text} for text in input], dim=6))
+
+        demo_client = DemoEmbeddingClient()
+        records, summary = run_batch_embedding(
+            [{**chunk, "id": f"{chunk['metadata']['source']}-{chunk['metadata'].get('chunk_index', idx)}"} for idx, chunk in enumerate(chunks)],
+            client=demo_client,
+            model=model_name,
+            batch_size=args.batch_size,
+            existing_ids={"account-guide.md-1"},
+            price_per_1k_tokens=0.00002,
+        )
     else:
         client = create_client()
-        records = embed_chunks(chunks, model=model_name, client=client)
+        records, summary = run_batch_embedding(chunks, client=client, model=model_name, batch_size=args.batch_size, price_per_1k_tokens=0.00002)
 
     print(f"model: {model_name}")
     print(f"records: {len(records)}")
     print(f"vector length: {len(records[0]['embedding'])}")
     print(f"sample values: {records[0]['embedding'][:5]}")
+    print("batch summary:", summary)
 
     query = "How can a learner reset their password?"
     query_vector = demo_vectors([{"text": query}], dim=len(records[0]["embedding"]))[0]
@@ -276,6 +406,10 @@ def main() -> None:
     ranking_path = PROJECT_ROOT / "outputs" / "similarity_ranking_results.md"
     ranking_path.write_text(render_similarity_report(query, query_vector, ranked), encoding="utf-8")
     print(f"Saved ranking output: {ranking_path}")
+
+    batch_summary_path = PROJECT_ROOT / "outputs" / "batch_embedding_results.md"
+    batch_summary_path.write_text(render_batch_summary(summary, model=model_name), encoding="utf-8")
+    print(f"Saved batch summary: {batch_summary_path}")
 
 
 if __name__ == "__main__":

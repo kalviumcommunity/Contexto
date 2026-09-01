@@ -4,7 +4,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from embeddings import build_records, cosine_similarity, rank_chunks_for_query
+from embeddings import (
+    batches,
+    build_records,
+    cosine_similarity,
+    estimate_tokens,
+    rank_chunks_for_query,
+    run_batch_embedding,
+)
 
 
 class EmbeddingRecordTests(unittest.TestCase):
@@ -64,6 +71,51 @@ class EmbeddingRecordTests(unittest.TestCase):
         self.assertIn(ranked[1]["text"], relevant_texts)
         self.assertEqual(ranked[-1]["text"], "The cafeteria menu changes every Friday.")
         self.assertGreater(ranked[0]["score"], ranked[-1]["score"])
+
+    def test_batches_split_items_by_requested_size(self):
+        grouped = list(batches([1, 2, 3, 4, 5], 2))
+        self.assertEqual(grouped, [[1, 2], [3, 4], [5]])
+
+    def test_run_batch_embedding_skips_existing_chunks_and_reports_cost(self):
+        class FakeEmbeddingResponse:
+            def __init__(self, vectors):
+                self.data = [type("Item", (), {"embedding": vector})() for vector in vectors]
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            @property
+            def embeddings(self):
+                return self
+
+            def create(self, model, input):
+                self.calls.append(list(input))
+                return FakeEmbeddingResponse([[0.1, 0.2, 0.3] for _ in input])
+
+        chunks = [
+            {"id": "chunk-1", "text": "one two three four", "metadata": {"source": "a.md"}},
+            {"id": "chunk-2", "text": "reset password access", "metadata": {"source": "b.md"}},
+            {"id": "chunk-3", "text": "support agent verify identity", "metadata": {"source": "c.md"}},
+        ]
+
+        client = FakeClient()
+        records, summary = run_batch_embedding(
+            chunks,
+            client=client,
+            model="demo-model",
+            batch_size=2,
+            existing_ids={"chunk-2"},
+            price_per_1k_tokens=0.00002,
+        )
+
+        self.assertEqual(len(records), 2)
+        self.assertEqual(summary["skipped_existing"], 1)
+        self.assertEqual(summary["embedded"], 2)
+        self.assertEqual(summary["total_chunks"], 3)
+        self.assertGreater(summary["estimated_cost_usd"], 0.0)
+        self.assertEqual(summary["attempted_batches"], 1)
+        self.assertEqual(len(client.calls), 1)
 
 
 if __name__ == "__main__":

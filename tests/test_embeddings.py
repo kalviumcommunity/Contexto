@@ -10,7 +10,9 @@ from embeddings import (
     cosine_similarity,
     estimate_tokens,
     rank_chunks_for_query,
+    render_sanity_report,
     run_batch_embedding,
+    run_quality_checks,
 )
 
 
@@ -116,6 +118,38 @@ class EmbeddingRecordTests(unittest.TestCase):
         self.assertGreater(summary["estimated_cost_usd"], 0.0)
         self.assertEqual(summary["attempted_batches"], 1)
         self.assertEqual(len(client.calls), 1)
+
+    def test_run_quality_checks_rank_relevant_sources_above_unrelated_ones(self):
+        records = [
+            {
+                "text": "The cafeteria menu changes every Friday.",
+                "metadata": {"source": "campus-guide.md", "chunk_index": 3},
+                "embedding": [0.2, 0.1, 0.0],
+            },
+            {
+                "text": "Password reset instructions for learner accounts.",
+                "metadata": {"source": "account-guide.md", "chunk_index": 0},
+                "embedding": [0.9, 0.8, 0.7],
+            },
+            {
+                "text": "Learners can recover access using their registered email.",
+                "metadata": {"source": "account-guide.md", "chunk_index": 1},
+                "embedding": [0.8, 0.7, 0.6],
+            },
+        ]
+
+        test_cases = [
+            {"query": "How can a learner reset their password?", "expected_source": "account-guide.md", "query_vector": [1.0, 0.9, 0.7]},
+            {"query": "When does the cafeteria menu change?", "expected_source": "campus-guide.md", "query_vector": [0.2, 0.1, 0.0]},
+        ]
+
+        report = run_quality_checks(test_cases, records)
+
+        self.assertEqual(len(report), 2)
+        self.assertTrue(all(row["passed"] for row in report))
+        self.assertIn("account-guide.md", [row["top_source"] for row in report])
+        self.assertIn("campus-guide.md", [row["top_source"] for row in report])
+        self.assertIn("summary", render_sanity_report(report))
 
 
 if __name__ == "__main__":

@@ -6,10 +6,14 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from dotenv import load_dotenv
-from openai import OpenAI
+
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - used in offline demo environments
+    OpenAI = Any  # type: ignore[assignment]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -125,6 +129,35 @@ def demo_vectors(chunks: list[dict], dim: int = 6) -> list[list[float]]:
     return vectors
 
 
+def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    """Compute cosine similarity between two vectors, where higher is more similar."""
+    left = [float(value) for value in a]
+    right = [float(value) for value in b]
+
+    if len(left) != len(right):
+        raise ValueError(f"Vector lengths differ ({len(left)} vs {len(right)}).")
+    if not left or not right:
+        return 0.0
+
+    dot_product = sum(x * y for x, y in zip(left, right))
+    left_norm = (sum(x * x for x in left)) ** 0.5
+    right_norm = (sum(x * x for x in right)) ** 0.5
+
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+
+    return dot_product / (left_norm * right_norm)
+
+
+def rank_chunks_for_query(query_vector: Sequence[float], records: list[dict]) -> list[dict]:
+    """Score each chunk against a query vector and return them from most similar to least."""
+    ranked = []
+    for record in records:
+        score = cosine_similarity(query_vector, record["embedding"])
+        ranked.append({**record, "score": round(score, 6)})
+    return sorted(ranked, key=lambda item: item["score"], reverse=True)
+
+
 def render_output(records: list[dict], model: str) -> str:
     """Generate a markdown report showing stored text, metadata, and vector previews."""
     vector_length = len(records[0]["embedding"]) if records else 0
@@ -163,6 +196,50 @@ def render_output(records: list[dict], model: str) -> str:
     return "\n".join(lines)
 
 
+def render_similarity_report(query: str, query_vector: Sequence[float], ranked: list[dict]) -> str:
+    """Generate a markdown report showing the strongest and weakest retrieval matches."""
+    lines = [
+        "# Similarity Ranking Results",
+        "",
+        f"- Query: {query}",
+        f"- Query vector: {[round(value, 6) for value in query_vector]}",
+        "",
+        "## Ranked chunks",
+        "",
+    ]
+
+    for index, item in enumerate(ranked, start=1):
+        lines.extend(
+            [
+                f"### Rank {index}: score={item['score']:.6f}",
+                "",
+                "```json",
+                json.dumps(
+                    {
+                        "text": item["text"],
+                        "metadata": item["metadata"],
+                        "score": item["score"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                "```",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## Interpretation",
+            "",
+            "- Higher cosine similarity scores indicate a closer semantic match.",
+            "- The top-ranked chunk is the best retrieval candidate for the query.",
+            "- Lower scores still provide useful negatives for comparing relevance and retrieval quality.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate embeddings for Contexto chunks.")
     parser.add_argument("--demo", action="store_true", help="Use the offline demo corpus without requiring API credentials.")
@@ -185,10 +262,20 @@ def main() -> None:
     print(f"vector length: {len(records[0]['embedding'])}")
     print(f"sample values: {records[0]['embedding'][:5]}")
 
+    query = "How can a learner reset their password?"
+    query_vector = demo_vectors([{"text": query}], dim=len(records[0]["embedding"]))[0]
+    ranked = rank_chunks_for_query(query_vector, records)
+    print("Top match:", ranked[0]["score"], ranked[0]["text"])
+    print("Bottom match:", ranked[-1]["score"], ranked[-1]["text"])
+
     output_path = args.output
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(render_output(records, model_name), encoding="utf-8")
     print(f"Saved sample output: {output_path}")
+
+    ranking_path = PROJECT_ROOT / "outputs" / "similarity_ranking_results.md"
+    ranking_path.write_text(render_similarity_report(query, query_vector, ranked), encoding="utf-8")
+    print(f"Saved ranking output: {ranking_path}")
 
 
 if __name__ == "__main__":

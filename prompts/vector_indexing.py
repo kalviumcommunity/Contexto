@@ -158,6 +158,7 @@ def retrieve(
     query_vector: list[float],
     *,
     k: int = 3,
+    metadata_filter: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Search the vector database for the k most similar chunks to a query vector.
     
@@ -165,6 +166,9 @@ def retrieve(
         collection: The Chroma collection to search.
         query_vector: The embedding vector of the user's query.
         k: Number of top results to return. Default is 3.
+        metadata_filter: Optional dict to filter results by metadata.
+                        E.g., {"section": "Account access"} or
+                             {"source": "article.txt", "chunk_index": {"$gte": 0}}
     
     Returns:
         A list of results, each containing:
@@ -176,10 +180,18 @@ def retrieve(
         raise ValueError("k must be greater than 0")
     
     try:
-        results = collection.query(query_embeddings=[query_vector], n_results=k)
+        results = collection.query(
+            query_embeddings=[query_vector],
+            n_results=k,
+            where=metadata_filter,
+        )
     except Exception:
         # Fallback for other collection APIs
-        results = collection.search(query_vector=query_vector, top_k=k)
+        results = collection.search(
+            query_vector=query_vector,
+            top_k=k,
+            filter=metadata_filter,
+        )
     
     # Normalize Chroma's response format
     retrieved = []
@@ -213,6 +225,7 @@ def retrieve_with_embedding(
     embed_fn: Any,
     *,
     k: int = 3,
+    metadata_filter: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Embed a query and retrieve the top-k similar chunks.
     
@@ -225,12 +238,95 @@ def retrieve_with_embedding(
         embed_fn: A callable that takes a list of texts and returns embeddings.
                  E.g., lambda texts: embed_texts(client, texts)
         k: Number of top results to return. Default is 3.
+        metadata_filter: Optional dict to filter results by metadata.
     
     Returns:
         A list of results with score, text, and metadata.
     """
     query_embedding = embed_fn([query])[0]
-    return retrieve(collection, query_embedding, k=k)
+    return retrieve(collection, query_embedding, k=k, metadata_filter=metadata_filter)
+
+
+def keyword_score(text: str, keywords: Sequence[str]) -> float:
+    """Calculate keyword match score as sum of keyword occurrences in text.
+    
+    Case-insensitive matching. Each keyword occurrence increases the score by 1.
+    Useful for measuring lexical similarity (exact terms, product names, IDs).
+    
+    Args:
+        text: The text to search in.
+        keywords: List of keywords to find.
+    
+    Returns:
+        Number of keyword matches found (can be > 1 if keywords repeat).
+    """
+    if not keywords:
+        return 0.0
+    
+    lowered = text.lower()
+    score = 0
+    for keyword in keywords:
+        if keyword:  # Skip empty keywords
+            score += lowered.count(keyword.lower())
+    return float(score)
+
+
+def hybrid_rank(
+    vector_results: Sequence[dict[str, Any]],
+    keywords: Sequence[str],
+    *,
+    vector_weight: float = 0.8,
+    keyword_weight: float = 0.2,
+) -> list[dict[str, Any]]:
+    """Combine vector similarity and keyword matching scores for hybrid ranking.
+    
+    Performs a weighted combination of:
+    - Vector score (semantic similarity)
+    - Keyword score (lexical/exact match)
+    
+    This approach helps when users search for exact product names, IDs, 
+    codes, or specific terms where pure semantic similarity might miss matches.
+    
+    Args:
+        vector_results: Results from vector search with 'score' and 'text' keys.
+        keywords: List of keywords to match.
+        vector_weight: Weight for vector similarity score (default 0.8).
+        keyword_weight: Weight for keyword matching (default 0.2).
+    
+    Returns:
+        Results ranked by hybrid score, with new 'keyword_score' and 
+        'hybrid_score' fields added.
+    
+    Raises:
+        ValueError: If weights don't sum to approximately 1.0.
+    """
+    total_weight = vector_weight + keyword_weight
+    if abs(total_weight - 1.0) > 0.01:
+        raise ValueError(f"weights must sum to ~1.0, got {total_weight}")
+    
+    ranked = []
+    for item in vector_results:
+        # Calculate keyword score (number of keyword matches)
+        lexical_score = keyword_score(item["text"], keywords)
+        
+        # Normalize lexical score to 0-1 range if needed
+        # Use min() to cap at 1.0 for comparison with normalized vector score
+        normalized_lexical = min(lexical_score / max(len(keywords), 1), 1.0)
+        
+        # Combine scores
+        combined_score = (
+            (vector_weight * item["score"]) +
+            (keyword_weight * normalized_lexical)
+        )
+        
+        ranked.append({
+            **item,
+            "keyword_score": lexical_score,
+            "hybrid_score": combined_score,
+        })
+    
+    # Sort by hybrid score descending
+    return sorted(ranked, key=lambda item: item["hybrid_score"], reverse=True)
 
 
 def main() -> None:

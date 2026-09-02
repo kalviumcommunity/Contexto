@@ -127,6 +127,112 @@ def spot_check_index(collection: Any, embedded_chunks: Sequence[dict[str, Any]],
     return {"sample_id": sample["id"], "stored": stored}
 
 
+def _normalize_search_result(result: Any) -> dict[str, Any]:
+    """Normalize a search result from Chroma into a consistent format.
+    
+    Handles both dict-based and tuple-based result formats from different
+    versions and configurations of Chroma.
+    """
+    if isinstance(result, dict):
+        return result
+    
+    if isinstance(result, (list, tuple)) and len(result) >= 3:
+        # Handle tuple-based format: (id, distance, metadata, document)
+        result_id = result[0] if len(result) > 0 else ""
+        distance = result[1] if len(result) > 1 else 0.0
+        metadata = result[2] if len(result) > 2 else {}
+        document = result[3] if len(result) > 3 else ""
+        
+        return {
+            "id": result_id,
+            "score": float(distance),
+            "metadata": metadata if isinstance(metadata, dict) else {},
+            "text": document if isinstance(document, str) else "",
+        }
+    
+    return {"id": "", "score": 0.0, "metadata": {}, "text": ""}
+
+
+def retrieve(
+    collection: Any,
+    query_vector: list[float],
+    *,
+    k: int = 3,
+) -> list[dict[str, Any]]:
+    """Search the vector database for the k most similar chunks to a query vector.
+    
+    Args:
+        collection: The Chroma collection to search.
+        query_vector: The embedding vector of the user's query.
+        k: Number of top results to return. Default is 3.
+    
+    Returns:
+        A list of results, each containing:
+            - score: Similarity score (higher is more similar)
+            - text: The chunk text
+            - metadata: Source, chunk_index, and section information
+    """
+    if k <= 0:
+        raise ValueError("k must be greater than 0")
+    
+    try:
+        results = collection.query(query_embeddings=[query_vector], n_results=k)
+    except Exception:
+        # Fallback for other collection APIs
+        results = collection.search(query_vector=query_vector, top_k=k)
+    
+    # Normalize Chroma's response format
+    retrieved = []
+    
+    if isinstance(results, dict) and "ids" in results:
+        # Standard Chroma dict response format
+        ids = results.get("ids", [[]])[0]
+        distances = results.get("distances", [[]])[0]
+        documents = results.get("documents", [[]])[0]
+        metadatas = results.get("metadatas", [[]])[0]
+        
+        for idx, (result_id, distance, document, metadata) in enumerate(
+            zip(ids, distances, documents, metadatas)
+        ):
+            retrieved.append({
+                "score": float(distance),
+                "text": document or "",
+                "metadata": metadata or {},
+            })
+    elif isinstance(results, list):
+        # List-based or iterator response format
+        for result in results:
+            retrieved.append(_normalize_search_result(result))
+    
+    return retrieved
+
+
+def retrieve_with_embedding(
+    collection: Any,
+    query: str,
+    embed_fn: Any,
+    *,
+    k: int = 3,
+) -> list[dict[str, Any]]:
+    """Embed a query and retrieve the top-k similar chunks.
+    
+    This is the high-level retrieval function that combines embedding
+    and search into one step.
+    
+    Args:
+        collection: The Chroma collection to search.
+        query: The user's query string.
+        embed_fn: A callable that takes a list of texts and returns embeddings.
+                 E.g., lambda texts: embed_texts(client, texts)
+        k: Number of top results to return. Default is 3.
+    
+    Returns:
+        A list of results with score, text, and metadata.
+    """
+    query_embedding = embed_fn([query])[0]
+    return retrieve(collection, query_embedding, k=k)
+
+
 def main() -> None:
     """Simple demo showing how to prepare, index, and verify stored chunk records."""
     try:

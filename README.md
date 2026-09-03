@@ -214,6 +214,19 @@ It retrieves 10 candidates, scores them again, and keeps the final 3. The
 before-and-after ordering, scores, metadata, selected text, and latency/cost
 trade-off are recorded in `outputs/reranking_results.md`.
 
+## Retrieval Evaluation
+
+Run labelled recall and precision evaluation:
+
+```bash
+python -m src.retrieval_evaluation
+python -m unittest tests.test_retrieval_evaluation
+```
+
+The evaluator measures macro recall@k and precision@k for k=3, 5, and 10,
+records missing chunk IDs, and explains likely failure causes in
+`outputs/retrieval_evaluation_results.md`.
+
 ## Document Loading
 
 The loader accepts PDF, TXT, Markdown, and HTML files. It returns a common document shape with the source filename preserved:

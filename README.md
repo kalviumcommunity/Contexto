@@ -152,6 +152,19 @@ can be reproduced without API credentials. Production rollout should rerun the
 same evaluation with representative queries and manually review the retrieved
 chunks as well as source-level hits.
 
+## Chunk Re-Ranking
+
+Run the two-stage candidate retrieval and re-ranking demo:
+
+```bash
+python -m src.reranking
+python -m unittest tests.test_reranking
+```
+
+It retrieves 10 candidates, scores them again, and keeps the final 3. The
+before-and-after ordering, scores, metadata, selected text, and latency/cost
+trade-off are recorded in `outputs/reranking_results.md`.
+
 ## Document Loading
 
 The loader accepts PDF, TXT, Markdown, and HTML files. It returns a common document shape with the source filename preserved:

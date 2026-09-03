@@ -181,6 +181,26 @@ on every record and can be populated by format-specific loaders when that
 information is available. Running `python src/chunker.py` prints sample
 records and a trace line for a retrieved chunk.
 
+## Retrieval Relevance Tuning
+
+Run the deterministic offline retrieval experiment:
+
+```bash
+python -m src.retrieval_tuning
+python -m unittest tests.test_retrieval_tuning
+```
+
+The experiment compares chunk size, `k`, metadata filtering, and minimum score
+thresholds across three test queries. It reports source hit rate and top-1 hit
+rate in `outputs/retrieval_tuning_results.md`. The current sample results choose
+`baseline_k3` (chunk size 40, `k=3`, no filter, minimum score 0.0): it achieves
+100% on both metrics, while the filtered and strict settings achieve 67%.
+
+The corpus and queries are intentionally small and deterministic so the result
+can be reproduced without API credentials. Production rollout should rerun the
+same evaluation with representative queries and manually review the retrieved
+chunks as well as source-level hits.
+
 ## Document Loading
 
 The loader accepts PDF, TXT, Markdown, and HTML files. It returns a common document shape with the source filename preserved:

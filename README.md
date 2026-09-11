@@ -103,6 +103,22 @@ message = render(ANSWER, context=retrieved_chunks, question=user_question)
 Update the grounding or citation rules in `prompts/answer.py` to change them for
 the application and prompt experiment together.
 
+## Evaluate answer quality
+
+End-to-end evaluation utilities live in `prompts/evaluation.py`. Each example
+declares expected answer points and source references, while the answer result
+provides `answer`, `sources`, and `retrieved_chunks`:
+
+```python
+from prompts.evaluation import evaluate_test_set
+
+summary = evaluate_test_set(test_set, answer_fn)
+```
+
+The summary reports average correctness, grounding, citation accuracy, and the
+individual examples that fail at least one dimension. Run the evaluation tests
+with `python -m pytest -q`.
+
 ## Verification
 
 The workspace was successfully tested with the virtual environment activated.

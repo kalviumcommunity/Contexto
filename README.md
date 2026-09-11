@@ -119,6 +119,26 @@ The summary reports average correctness, grounding, citation accuracy, and the
 individual examples that fail at least one dimension. Run the evaluation tests
 with `python -m pytest -q`.
 
+## Run the backend API
+
+The FastAPI backend is defined in `src/api.py`. Set `OPENAI_API_KEY` and
+`VECTOR_DB_URL`, then start it with:
+
+```bash
+uvicorn src.api:app --reload
+```
+
+Send a question to `POST /query`:
+
+```bash
+curl -X POST http://localhost:8000/query \
+	-H "Content-Type: application/json" \
+	-d '{"question":"What evidence is required for project submission?"}'
+```
+
+The response contains an `answer`, normalized `sources`, and a `status` such
+as `answered` or `refused_weak_context`.
+
 ## Verification
 
 The workspace was successfully tested with the virtual environment activated.

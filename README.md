@@ -103,6 +103,42 @@ message = render(ANSWER, context=retrieved_chunks, question=user_question)
 Update the grounding or citation rules in `prompts/answer.py` to change them for
 the application and prompt experiment together.
 
+## Evaluate answer quality
+
+End-to-end evaluation utilities live in `prompts/evaluation.py`. Each example
+declares expected answer points and source references, while the answer result
+provides `answer`, `sources`, and `retrieved_chunks`:
+
+```python
+from prompts.evaluation import evaluate_test_set
+
+summary = evaluate_test_set(test_set, answer_fn)
+```
+
+The summary reports average correctness, grounding, citation accuracy, and the
+individual examples that fail at least one dimension. Run the evaluation tests
+with `python -m pytest -q`.
+
+## Run the backend API
+
+The FastAPI backend is defined in `src/api.py`. Set `OPENAI_API_KEY` and
+`VECTOR_DB_URL`, then start it with:
+
+```bash
+uvicorn src.api:app --reload
+```
+
+Send a question to `POST /query`:
+
+```bash
+curl -X POST http://localhost:8000/query \
+	-H "Content-Type: application/json" \
+	-d '{"question":"What evidence is required for project submission?"}'
+```
+
+The response contains an `answer`, normalized `sources`, and a `status` such
+as `answered` or `refused_weak_context`.
+
 ## Verification
 
 The workspace was successfully tested with the virtual environment activated.
@@ -128,18 +164,132 @@ Workspace setup successful!
 - `.env.example` contains variable names without real secrets.
 - No real API keys or private documents should be committed.
 
-## Next Development Stages
+## Embedding, Retrieval, and Quality Checks
 
-Future stages will implement document processing, chunking, embeddings, vector search, RAG answer generation, source attribution, and the journalist-facing interface...
+The project now includes a working embedding pipeline and retrieval sanity checks for the sample corpus.
+
+### Current embedding capabilities
+
+- Generate chunk embeddings from text records and attach metadata
+- Compute cosine similarity between query and chunk vectors
+- Rank chunks from most similar to least similar
+- Batch embeddings for efficient API use
+- Retry transient failures with exponential backoff
+- Estimate approximate embedding cost for a run
+- Skip already-embedded chunks on re-runs to avoid duplicate work
+- Run known query-source sanity checks to confirm relevant text ranks above unrelated text
+
+### Demo and output files
+
+The generated outputs include:
+
+- `outputs/embedding_results.md` for stored chunk vectors
+- `outputs/similarity_ranking_results.md` for ranked retrieval matches
+- `outputs/batch_embedding_results.md` for batch summary and cost estimates
+- `outputs/sanity_report.md` for quality-check results
+
+### Retrieval rationale
+
+The project uses cosine similarity because it compares vector direction rather than raw vector length, which is a common and useful choice for semantic retrieval. High scores indicate closer semantic alignment in embedding space, while lower scores show weaker matches.
+
+## Chunk Metadata and Source Tracking
+
+Every chunk returned by `src/chunker.py` keeps its text beside a consistent
+metadata record:
+
+```python
+{
+	"text": "Contexto helps journalists...",
+	"metadata": {
+		"source": "sample.txt",
+		"chunk_index": 0,
+		"char_start": 0,
+		"char_end": 42,
+		"section": None,
+		"page": None,
+	},
+}
+```
+
+The source and character offsets let a retrieved chunk be traced back to its
+exact document location. The optional `section` and `page` fields are present
+on every record and can be populated by format-specific loaders when that
+information is available. Running `python src/chunker.py` prints sample
+records and a trace line for a retrieved chunk.
+
+## Retrieval Relevance Tuning
+
+Run the deterministic offline retrieval experiment:
+
+```bash
+python -m src.retrieval_tuning
+python -m unittest tests.test_retrieval_tuning
+```
+
+The experiment compares chunk size, `k`, metadata filtering, and minimum score
+thresholds across three test queries. It reports source hit rate and top-1 hit
+rate in `outputs/retrieval_tuning_results.md`. The current sample results choose
+`baseline_k3` (chunk size 40, `k=3`, no filter, minimum score 0.0): it achieves
+100% on both metrics, while the filtered and strict settings achieve 67%.
+
+The corpus and queries are intentionally small and deterministic so the result
+can be reproduced without API credentials. Production rollout should rerun the
+same evaluation with representative queries and manually review the retrieved
+chunks as well as source-level hits.
+
+## Chunk Re-Ranking
+
+Run the two-stage candidate retrieval and re-ranking demo:
+
+```bash
+python -m src.reranking
+python -m unittest tests.test_reranking
+```
+
+It retrieves 10 candidates, scores them again, and keeps the final 3. The
+before-and-after ordering, scores, metadata, selected text, and latency/cost
+trade-off are recorded in `outputs/reranking_results.md`.
+
+## Retrieval Evaluation
+
+Run labelled recall and precision evaluation:
+
+```bash
+python -m src.retrieval_evaluation
+python -m unittest tests.test_retrieval_evaluation
+```
+
+The evaluator measures macro recall@k and precision@k for k=3, 5, and 10,
+records missing chunk IDs, and explains likely failure causes in
+`outputs/retrieval_evaluation_results.md`.
+
+## Document Loading
+
+The loader accepts PDF, TXT, Markdown, and HTML files. It returns a common document shape with the source filename preserved:
+
+```python
+{"source": "sample_article.txt", "text": "..."}
+```
+
+Run it against the included sample corpus:
+
+```bash
+python src/document_loader.py
+```
+
+Each successful file prints its extracted character count and a short sample. Unsupported, missing, corrupt, or unreadable files are reported as `SKIP` entries while the remaining corpus continues loading. PDF extraction uses `pypdf`; HTML tags are removed with Beautiful Soup.
 
 
-Workflow Established
-Created separate feature branches for each team member to avoid direct changes to main.
-Used GitHub Issues to track tasks, assign responsibilities, and document requirements.
-Followed a Pull Request-based workflow for merging changes into main.
-Established code review so that changes are reviewed and approved by at least one teammate before merging.
-Adopted Conventional Commits such as feat:, fix:, docs:, refactor:, and test: for clear and consistent commit history.
-Linked Pull Requests with their corresponding Issues using Closes #<issue-number>.
-Kept main as the stable branch containing reviewed and approved changes.
-Team Workflow
+## Workflow Established
+
+- Created separate feature branches for each team member to avoid direct changes to main.
+- Used GitHub Issues to track tasks, assign responsibilities, and document requirements.
+- Followed a Pull Request-based workflow for merging changes into main.
+- Established code review so that changes are reviewed and approved by at least one teammate before merging.
+- Adopted Conventional Commits such as feat:, fix:, docs:, refactor:, and test: for clear and consistent commit history.
+- Linked Pull Requests with their corresponding Issues using Closes #<issue-number>.
+- Kept main as the stable branch containing reviewed and approved changes.
+
+## Team Workflow
+
 Issue → Feature Branch → Changes → Commit → Push → Pull Request → Code Review → Approval → Merge

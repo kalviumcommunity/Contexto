@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from streaming import format_sse, rag_pipeline_stream
 from pydantic import BaseModel, Field, field_validator
 from document_upload import process_uploaded_document, store_upload
 
@@ -116,6 +118,20 @@ def create_app(
             raise HTTPException(status_code=500, detail="RAG service failed") from error
 
     return app
+
+    @app.post("/query/stream")
+    async def stream_query(request: QueryRequest):
+        async def events():
+            try:
+                async for event in rag_pipeline_stream(request.question):
+                    yield format_sse(event)
+            except Exception:
+                yield format_sse({
+                    "type": "error",
+                    "message": "The answer stopped streaming. Please retry."
+                })
+
+        return StreamingResponse(events(), media_type="text/event-stream")
 
     @app.post("/documents")
     async def upload_document(file: UploadFile) -> dict[str, Any]:

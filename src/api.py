@@ -8,8 +8,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
+from document_upload import process_uploaded_document, store_upload
+
+from document_upload import process_uploaded_document, store_upload
 
 
 logger = logging.getLogger(__name__)
@@ -114,5 +117,39 @@ def create_app(
 
     return app
 
+    @app.post("/documents")
+    async def upload_document(file: UploadFile) -> dict[str, Any]:
+        try:
+            path = await store_upload(file)
+            summary = process_uploaded_document(path)
+
+            return {
+                "status": "indexed",
+                "filename": file.filename,
+                "summary": summary,
+            }
+
+        except HTTPException:
+            raise
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=400,
+                detail=str(error),
+            ) from error
+
+        except Exception as error:
+            logger.exception(
+                "Document indexing failed: %s",
+                error,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Document indexing failed",
+             ) from error
+
+    return app
 
 app = create_app()
+
+
